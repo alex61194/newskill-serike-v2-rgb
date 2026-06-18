@@ -1,86 +1,88 @@
 # Newskill Serike V2 TKL — RGB Control
 
-Plugin para SignalRGB y scripts Python para controlar la iluminación RGB del teclado **Newskill Serike V2 TKL** (también conocido como "Newski ll Seike v2 TKL").
+SignalRGB plugin and Python script to control the RGB lighting of the **Newskill Serike V2 TKL** keyboard.
+
+> Built with vibecoding — protocol reverse-engineered from USB pcap captures.
 
 ## Hardware
 
-- **Teclado:** Newskill Serike V2 TKL (86 teclas, formato Tenkeyless)
-- **VID/PID:** `0x05AC:0x024F` (hereda ID del Apple Aluminium Keyboard ANSI)
-- **Interfaz HID:** Interface 1, Usage Page `0xFF00`, Usage `0x0001` (vendor-defined)
-- **Report ID:** `0x06`, tamaño del reporte: 520 bytes
+- **Keyboard:** Newskill Serike V2 TKL (86 keys, Tenkeyless form factor)
+- **VID/PID:** `0x05AC:0x024F` (inherits ID from Apple Aluminium Keyboard ANSI)
+- **HID Interface:** Interface 1, Usage Page `0xFF00`, Usage `0x0001` (vendor-defined)
+- **Report ID:** `0x06`, report size: 520 bytes
 
-## Protocolo HID (reversado desde USB pcap)
+## Protocol (reverse-engineered from USB pcap)
 
-El teclado usa **Feature Reports** HID sobre Interfaz 1. El protocolo tiene 3 pasos:
+The keyboard uses HID **Feature Reports** over Interface 1 with a 3-step sequence:
 
 ### 1. INIT (`0x84`)
-Inicializa el controlador RGB. Primer reporte que debe enviarse siempre.
+Initializes the RGB controller. Must always be sent first.
 
 ```
-06 84 00 00 01 00 80 00 + ceros hasta 520 bytes
+06 84 00 00 01 00 80 00 + zeros up to 520 bytes
 ```
 
 ### 2. CONFIG (`0x04`)
-Configura los parámetros internos del controlador (modo de color, brillo, etc.).
+Configures internal controller parameters (color mode, brightness, etc.).
 
 ```
-06 04 00 00 01 00 80 00 + 128 bytes de configuración + ceros
+06 04 00 00 01 00 80 00 + 128 bytes config + zeros
 ```
 
 ### 3. APPLY (`0x06`)
-Aplica los colores por zonas. Hay **4 zonas** (additivas RGB):
-- **Zona 0:** Rojo — offset `0x08`
-- **Zona 1:** Verde — offset `0x86` (134)
-- **Zona 2:** Azul — offset `0x104` (260)
-- **Zona 3:** Offset `0x182` (386, no usado)
+Applies colors per zone. There are **4 additive RGB zones**:
+- **Zone 0:** Red — offset `0x08`
+- **Zone 1:** Green — offset `0x86` (134)
+- **Zone 2:** Blue — offset `0x104` (260)
+- **Zone 3:** Offset `0x182` (386, unused)
 
-Cada zona tiene un **bitmap de 126 bytes** donde `0xFF` = tecla encendida y `0x00` = apagada.
-Los colores son **aditivos**: activando zona roja + verde = amarillo.
+Each zone has a **126-byte bitmap** where `0xFF` = key ON and `0x00` = OFF.
+Colors are **additive**: enabling red + green zones = yellow.
 
-Cabecera del APPLY:
+APPLY header:
 ```
 06 06 00 00 01 00 80 01
 ```
 
-Encabezado + 306 bytes RGB (102 posiciones × 3 canales).
+Header + 306 bytes RGB (102 positions × 3 channels).
 
-## Archivos
+## Files
 
-| Archivo | Descripción |
-|---------|-------------|
-| `Newskill_Serike_V2_TKL.js` | Plugin para **SignalRGB** — mapeo de LEDs, renderizado y envío de colores |
-| `newskill_rgb.py` | Script **Python** independiente para controlar RGB desde línea de comandos |
+| File | Description |
+|------|-------------|
+| `Newskill_Serike_V2_TKL.js` | **SignalRGB** plugin — LED mapping, rendering, and HID report sending |
+| `newskill_rgb.py` | Standalone **Python** script for CLI RGB control |
 
 ## SignalRGB Plugin
 
-### Instalación
-1. Copia `Newskill_Serike_V2_TKL.js` a:
+### Installation
+1. Copy `Newskill_Serike_V2_TKL.js` to:
    ```
    %USERPROFILE%\Documents\WhirlwindFX\Plugins\Newskill\
    ```
-2. Abre SignalRGB → debería detectar el teclado automáticamente
-3. En los ajustes del plugin puedes elegir:
-   - **Lighting Mode:** `Canvas` (colores desde SignalRGB) o `Forced` (color fijo)
-   - **Forced Color:** color cuando el modo es `Forced`
-   - **Shutdown Color:** color al apagar el PC
+2. Open SignalRGB — the keyboard should be detected automatically
+3. Plugin settings:
+   - **Lighting Mode:** `Canvas` (colors from SignalRGB) or `Forced` (fixed color)
+   - **Forced Color:** color when mode is `Forced`
+   - **Shutdown Color:** color when PC shuts down
 
-### Cómo funciona
+### How it works
 ```javascript
-// 102 LEDs mapeados a 86 teclas físicas
+// 102 LEDs mapped to 86 physical keys
 var vLeds = [0, 12, 18, ..., 101];
 var vLedPositions = [[0,0], [2,0], ..., [17,5]];
 
-// En cada frame (Render):
-// 1. Obtiene el color de cada tecla desde SignalRGB
-// 2. Construye un array RGB de 306 bytes (102 LEDs × 3)
-// 3. Envía el reporte HID de 520 bytes al teclado
-// 4. Los LEDs se distribuyen en columnas (0-17) y filas (0-6)
+// On each frame (Render):
+// 1. Gets each key's color from SignalRGB canvas
+// 2. Builds a 306-byte RGB array (102 LEDs × 3)
+// 3. Sends a 520-byte HID feature report to the keyboard
+// 4. LEDs are distributed across columns (0-17) and rows (0-6)
 
-// El layout TKL se define en vLedNames con 86 nombres de teclas
+// The TKL layout is defined in vLedNames with 86 key names
 ```
 
-### Validación del dispositivo
-El plugin solo se activa en el endpoint correcto:
+### Device validation
+The plugin only activates on the correct endpoint:
 ```javascript
 endpoint.interface === 1 &&
 endpoint.usage === 0x0001 &&
@@ -89,51 +91,40 @@ endpoint.usage_page === 0xFF00
 
 ## Python Script
 
-### Requisitos
+### Requirements
 ```bash
 pip install hidapi
 ```
 
-### Uso
+### Usage
 ```bash
-# Listar dispositivos HID disponibles
+# List available HID devices
 python newskill_rgb.py list
 
-# Encender todas las teclas en blanco
+# Turn all keys white
 python newskill_rgb.py on --vid 0x05ac --pid 0x024f
 
-# Apagar todas las teclas
+# Turn all keys off
 python newskill_rgb.py off --vid 0x05ac --pid 0x024f
 
-# Colores básicos
+# Basic colors
 python newskill_rgb.py red --vid 0x05ac --pid 0x024f
 python newskill_rgb.py green --vid 0x05ac --pid 0x024f
 python newskill_rgb.py blue --vid 0x05ac --pid 0x024f
 
-# Test de todos los colores (ciclo de 1.5s cada uno)
+# Color cycle test (1.5s each)
 python newskill_rgb.py test --vid 0x05ac --pid 0x024f
 ```
 
-### Cómo funciona
-1. Busca el dispositivo HID con VID/PID y sub-device `Col06` + `MI_01`
-2. Envía INIT → CONFIG → APPLY en secuencia
-3. El APPLY usa 4 zonas de 126 bytes cada una:
-   - Zona 0 (Red): bitmap de teclas para canal rojo
-   - Zona 1 (Green): bitmap para canal verde
-   - Zona 2 (Blue): bitmap para canal azul
-4. Solo los 86 bits del TKL bitmap están activos; los demás son `0x00`
+### How it works
+1. Finds the HID device by VID/PID and sub-device `Col06` + `MI_01`
+2. Sends INIT → CONFIG → APPLY in sequence
+3. APPLY uses 4 zones of 126 bytes each:
+   - Zone 0 (Red): key bitmap for red channel
+   - Zone 1 (Green): key bitmap for green channel
+   - Zone 2 (Blue): key bitmap for blue channel
+4. Only the 86 bits from the TKL bitmap are active; the rest are `0x00`
 
-## Estructura de teclas (86 teclas TKL)
+## License
 
-```
-Esc  F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12    Mute
-`    1  2  3  4  5  6  7  8  9  0  -  = Bcksp   Ins Home PgUp
-Tab  Q  W  E  R  T  Y  U  I  O  P  [  ]  \     Del End  PgDn
-Caps A  S  D  F  G  H  J  K  L  ;  '  Enter
-LSh  <  Z  X  C  V  B  N  M  ,  .  /  RSh      Up
-LCtl Win Alt     Space     Alt Fn Menu RCtl    Left Down Right
-```
-
-## Licencia
-
-Este proyecto se proporciona tal cual, fruto de ingeniería inversa sobre USB captures.
+MIT
