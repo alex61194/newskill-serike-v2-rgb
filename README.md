@@ -10,6 +10,7 @@ SignalRGB plugin and Python script to control the RGB lighting of the **Newskill
 - **VID/PID:** `0x05AC:0x024F` (inherits ID from Apple Aluminium Keyboard ANSI)
 - **HID Interface:** Interface 1, Usage Page `0xFF00`, Usage `0x0001` (vendor-defined)
 - **Report ID:** `0x06`, report size: 520 bytes
+- **Matrix Layout:** 17 columns × 6 rows = 102 hardware LED slots ($6 \times \text{Col} + \text{Row}$), with 86 physical keys mapped.
 
 ## Protocol (reverse-engineered from USB pcap)
 
@@ -23,107 +24,85 @@ Initializes the RGB controller. Must always be sent first.
 ```
 
 ### 2. CONFIG (`0x04`)
-Configures internal controller parameters (color mode, brightness, etc.).
+Configures internal controller parameters (color mode, brightness, profile, etc.).
 
 ```
 06 04 00 00 01 00 80 00 + 128 bytes config + zeros
 ```
 
-### 3. APPLY (`0x06`)
-Applies colors per zone. There are **4 additive RGB zones**:
-- **Zone 0:** Red — offset `0x08`
-- **Zone 1:** Green — offset `0x86` (134)
-- **Zone 2:** Blue — offset `0x104` (260)
-- **Zone 3:** Offset `0x182` (386, unused)
-
-Each zone has a **126-byte bitmap** where `0xFF` = key ON and `0x00` = OFF.
-Colors are **additive**: enabling red + green zones = yellow.
-
-APPLY header:
-```
-06 06 00 00 01 00 80 01
-```
-
-Header + 306 bytes RGB (102 positions × 3 channels).
+### 3. APPLY (`0x08` TrueColor RGB / `0x06` Bitmap Zones)
+- **Mode `0x08` (Direct 24-bit TrueColor):**
+  Header: `06 08 00 00 01 00 7A 01` (0x017A little-endian = 378 bytes = 126 slots × 3 RGB channels) + zeros.
+  Allows setting arbitrary 24-bit color per key. Used by SignalRGB.
+- **Mode `0x06` (Additive Zones):**
+  Header: `06 06 00 00 01 00 80 01` + 4 additive zones of 126-byte bitmaps (Red, Green, Blue, Unused).
 
 ## Files
 
 | File | Description |
 |------|-------------|
-| `Newskill_Serike_V2_TKL.js` | **SignalRGB** plugin — LED mapping, rendering, and HID report sending |
-| `newskill_rgb.py` | Standalone **Python** script for CLI RGB control |
+| `Newskill_Serike_V2_TKL.js` / `ZZZ_Newskill_Serike_V2_TKL.js` | **SignalRGB** plugin — per-key LED mapping, zero-allocation rendering, gamma curve, and HID reports |
+| `newskill_rgb.py` | Standalone **Python** script for CLI RGB control (named colors, hex, rgb, per-key test) |
 
 ## SignalRGB Plugin
 
 ### Installation
-1. Copy `Newskill_Serike_V2_TKL.js` to:
+1. Copy `ZZZ_Newskill_Serike_V2_TKL.js` to:
    ```
    %USERPROFILE%\Documents\WhirlwindFX\Plugins\Newskill\
    ```
-2. Open SignalRGB — the keyboard should be detected automatically
-3. Plugin settings:
-   - **Lighting Mode:** `Canvas` (colors from SignalRGB) or `Forced` (fixed color)
-   - **Forced Color:** color when mode is `Forced`
-   - **Shutdown Color:** color when PC shuts down
+   *(Note: The `ZZZ_` prefix is required because SignalRGB's built-in `SONIX_Keyboard_Controller.js` also claims PID `0x024F`. The `ZZZ_` prefix ensures our plugin is crawled last and takes precedence).*
+2. Restart or reload SignalRGB — the keyboard will be detected as **Newskill Serike V2 TKL** under Keyboards.
+3. Plugin settings in SignalRGB:
+   - **Lighting Mode:** `Canvas` (active effects) or `Forced` (solid color)
+   - **Forced Color:** solid color when forced mode is active
+   - **Shutdown Color:** color when the PC is suspended or turned off
 
-### How it works
-```javascript
-// 102 LEDs mapped to 86 physical keys
-var vLeds = [0, 12, 18, ..., 101];
-var vLedPositions = [[0,0], [2,0], ..., [17,5]];
-
-// On each frame (Render):
-// 1. Gets each key's color from SignalRGB canvas
-// 2. Builds a 306-byte RGB array (102 LEDs × 3)
-// 3. Sends a 520-byte HID feature report to the keyboard
-// 4. LEDs are distributed across columns (0-17) and rows (0-6)
-
-// The TKL layout is defined in vLedNames with 86 key names
-```
-
-### Device validation
-The plugin only activates on the correct endpoint:
-```javascript
-endpoint.interface === 1 &&
-endpoint.usage === 0x0001 &&
-endpoint.usage_page === 0xFF00
-```
+### Key Architecture Features
+- **Zero Allocations per Frame:** Pre-allocated 520-byte packet buffer, avoiding GC micro-stutters and heap fragmentation at 60 FPS.
+- **Continuous 18x6 Sampling Surface:** Avoids SignalRGB canvas holes that return [0,0,0], preventing the firmware from dropping into its default red static fallback.
+- **Hardware Matrix Mapping:** 1:1 mapping of physical key locations to the 102 hardware LED slots ($6 \times \text{Col} + \text{Row}$).
+- **Device Classification:** Declares `export function DeviceType() { return "keyboard"; }` for proper category placement in SignalRGB.
+- **TKL Device Image:** Provides thumbnail rendering for UI layout.
+- **Conflict Management:** Declares `export function ConflictingProcesses()` for Newskill OEM software.
 
 ## Python Script
 
 ### Requirements
 ```bash
 pip install hidapi
+# or: py -m pip install hidapi
 ```
 
 ### Usage
 ```bash
-# List available HID devices
+# List connected HID devices (defaults to VID 0x05ac, PID 0x024f)
 python newskill_rgb.py list
 
-# Turn all keys white
-python newskill_rgb.py on --vid 0x05ac --pid 0x024f
+# Turn all keys on (white) or off
+python newskill_rgb.py on
+python newskill_rgb.py off
 
-# Turn all keys off
-python newskill_rgb.py off --vid 0x05ac --pid 0x024f
+# Standard named colors
+python newskill_rgb.py red
+python newskill_rgb.py green
+python newskill_rgb.py blue
 
-# Basic colors
-python newskill_rgb.py red --vid 0x05ac --pid 0x024f
-python newskill_rgb.py green --vid 0x05ac --pid 0x024f
-python newskill_rgb.py blue --vid 0x05ac --pid 0x024f
+# Any arbitrary HEX color
+python newskill_rgb.py hex #FF5500
+python newskill_rgb.py hex 00FFAA
 
-# Color cycle test (1.5s each)
-python newskill_rgb.py test --vid 0x05ac --pid 0x024f
+# Any arbitrary RGB values (0-255)
+python newskill_rgb.py rgb 255 128 0
+
+# Test an individual key switch LED (0-101)
+python newskill_rgb.py key 0 255 0 0
+
+# Automated color cycle test
+python newskill_rgb.py test
 ```
 
-### How it works
-1. Finds the HID device by VID/PID and sub-device `Col06` + `MI_01`
-2. Sends INIT → CONFIG → APPLY in sequence
-3. APPLY uses 4 zones of 126 bytes each:
-   - Zone 0 (Red): key bitmap for red channel
-   - Zone 1 (Green): key bitmap for green channel
-   - Zone 2 (Blue): key bitmap for blue channel
-4. Only the 86 bits from the TKL bitmap are active; the rest are `0x00`
+> **Note:** If SignalRGB is running, it holds an exclusive lock on the USB HID interface. Close SignalRGB before running direct commands with `newskill_rgb.py`.
 
 ## License
 
