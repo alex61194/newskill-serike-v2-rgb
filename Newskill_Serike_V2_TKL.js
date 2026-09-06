@@ -8,7 +8,7 @@ export function Size() { return [18, 6]; }
 export function DefaultPosition() { return [100, 50]; }
 export function DefaultScale() { return 8.0; }
 export function ConflictingProcesses() { return ["Newskill.exe", "Serike.exe"]; }
-export function ImageUrl() { return "https://cdn.shopify.com/s/files/1/0986/3498/9907/files/SERIKE_V2_TKL_IVORY_1.png"; }
+export function ImageUrl() { return "https://cdn.shopify.com/s/files/1/0986/3498/9907/files/fotosserikev2TKL1800x1800_08IVORY.png"; }
 
 /* global
 shutdownColor:readonly
